@@ -1,0 +1,23 @@
+[package]
+name = "jplop"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+windows = { version = "0.58.0", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Accessibility",
+    "Win32_UI_Input_Ime",
+    "Win32_Graphics_Gdi",
+] }
+sudachi = { path = "sudachi" }
+uiautomation = { version = "0.25", features = ["event"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+anyhow = "1"
+egui = "0.28"
+eframe = "0.28"
+quick-xml = "0.42.0"
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
