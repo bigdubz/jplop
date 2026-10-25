@@ -127,91 +127,91 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 
 # 1. Sudachi dictionary
-$SystemDic = Join-Path $Root "system.dic"
-
-if (-not (Test-Path -LiteralPath $SystemDic -PathType Leaf)) {
-    Write-Host "Fetching Sudachi system dictionary..."
-
-    $DictVersion = "latest"
-    $DictType = "core"
-    $DictFormat = "v1"
-    $DictName = "sudachi-dictionary-$DictVersion-$DictType"
-    $DictZip = "$DictName.zip"
-    $DictUrl = "https://d2ej7fkh96fzlu.cloudfront.net/sudachidict/$DictFormat/$DictZip"
-
-    try {
-        Download-File -Url $DictUrl -Output $DictZip
-        Expand-Zip -ArchivePath $DictZip -Destination $DictName -Flatten
-    }
-    finally {
-        Remove-Item -LiteralPath (Join-Path $Root $DictZip) -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath (Join-Path $Root $DictName) -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath (Join-Path $Root "$DictName-extracted") -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-else {
-    Write-Host "Already exists: system.dic"
-}
-
-# 2. Translation model
-New-Item -ItemType Directory -Force -Path $ModelDir | Out-Null
-
-if (-not (Test-Path -LiteralPath $ModelFile -PathType Leaf)) {
-    Download-File -Url $ModelUrl -Output $ModelFile
-}
-else {
-    Write-Host "Already exists: $ModelFile"
-}
-
-Test-Sha256 -Path $ModelFile -Expected $ModelSha256
-
-# 3. JMdict English dictionary with example sentences
-if (-not (Test-Path -LiteralPath $JmFile -PathType Leaf)) {
-    Download-File -Url $JmUrl -Output $JmGz
-
-    $JmGzPath = Join-Path $Root $JmGz
-    $JmTempPath = Join-Path $Root "$JmFile.part"
-    $JmOutputPath = Join-Path $Root $JmFile
-
-    Remove-Item -LiteralPath $JmTempPath -Force -ErrorAction SilentlyContinue
-
-    Write-Host "Extracting JMdict..."
-
-    try {
-        $InputStream = [System.IO.File]::OpenRead($JmGzPath)
-        try {
-            $GzipStream = [System.IO.Compression.GzipStream]::new(
-                $InputStream,
-                [System.IO.Compression.CompressionMode]::Decompress
-            )
-            try {
-                $OutputStream = [System.IO.File]::Create($JmTempPath)
-                try {
-                    $GzipStream.CopyTo($OutputStream)
-                }
-                finally {
-                    $OutputStream.Dispose()
-                }
-            }
-            finally {
-                $GzipStream.Dispose()
-            }
-        }
-        finally {
-            $InputStream.Dispose()
-        }
-
-        Move-Item -LiteralPath $JmTempPath -Destination $JmOutputPath -Force
-        Remove-Item -LiteralPath $JmGzPath -Force
-    }
-    catch {
-        Remove-Item -LiteralPath $JmTempPath -Force -ErrorAction SilentlyContinue
-        throw "Could not decompress JMdict: $($_.Exception.Message)"
-    }
-}
-else {
-    Write-Host "Already exists: $JmFile"
-}
+# $SystemDic = Join-Path $Root "system.dic"
+#
+# if (-not (Test-Path -LiteralPath $SystemDic -PathType Leaf)) {
+#     Write-Host "Fetching Sudachi system dictionary..."
+#
+#     $DictVersion = "latest"
+#     $DictType = "core"
+#     $DictFormat = "v1"
+#     $DictName = "sudachi-dictionary-$DictVersion-$DictType"
+#     $DictZip = "$DictName.zip"
+#     $DictUrl = "https://d2ej7fkh96fzlu.cloudfront.net/sudachidict/$DictFormat/$DictZip"
+#
+#     try {
+#         Download-File -Url $DictUrl -Output $DictZip
+#         Expand-Zip -ArchivePath $DictZip -Destination $DictName -Flatten
+#     }
+#     finally {
+#         Remove-Item -LiteralPath (Join-Path $Root $DictZip) -Force -ErrorAction SilentlyContinue
+#         Remove-Item -LiteralPath (Join-Path $Root $DictName) -Recurse -Force -ErrorAction SilentlyContinue
+#         Remove-Item -LiteralPath (Join-Path $Root "$DictName-extracted") -Recurse -Force -ErrorAction SilentlyContinue
+#     }
+# }
+# else {
+#     Write-Host "Already exists: system.dic"
+# }
+#
+# # 2. Translation model
+# New-Item -ItemType Directory -Force -Path $ModelDir | Out-Null
+#
+# if (-not (Test-Path -LiteralPath $ModelFile -PathType Leaf)) {
+#     Download-File -Url $ModelUrl -Output $ModelFile
+# }
+# else {
+#     Write-Host "Already exists: $ModelFile"
+# }
+#
+# Test-Sha256 -Path $ModelFile -Expected $ModelSha256
+#
+# # 3. JMdict English dictionary with example sentences
+# if (-not (Test-Path -LiteralPath $JmFile -PathType Leaf)) {
+#     Download-File -Url $JmUrl -Output $JmGz
+#
+#     $JmGzPath = Join-Path $Root $JmGz
+#     $JmTempPath = Join-Path $Root "$JmFile.part"
+#     $JmOutputPath = Join-Path $Root $JmFile
+#
+#     Remove-Item -LiteralPath $JmTempPath -Force -ErrorAction SilentlyContinue
+#
+#     Write-Host "Extracting JMdict..."
+#
+#     try {
+#         $InputStream = [System.IO.File]::OpenRead($JmGzPath)
+#         try {
+#             $GzipStream = [System.IO.Compression.GzipStream]::new(
+#                 $InputStream,
+#                 [System.IO.Compression.CompressionMode]::Decompress
+#             )
+#             try {
+#                 $OutputStream = [System.IO.File]::Create($JmTempPath)
+#                 try {
+#                     $GzipStream.CopyTo($OutputStream)
+#                 }
+#                 finally {
+#                     $OutputStream.Dispose()
+#                 }
+#             }
+#             finally {
+#                 $GzipStream.Dispose()
+#             }
+#         }
+#         finally {
+#             $InputStream.Dispose()
+#         }
+#
+#         Move-Item -LiteralPath $JmTempPath -Destination $JmOutputPath -Force
+#         Remove-Item -LiteralPath $JmGzPath -Force
+#     }
+#     catch {
+#         Remove-Item -LiteralPath $JmTempPath -Force -ErrorAction SilentlyContinue
+#         throw "Could not decompress JMdict: $($_.Exception.Message)"
+#     }
+# }
+# else {
+#     Write-Host "Already exists: $JmFile"
+# }
 
 # 4. llama.cpp CPU build
 $CpuServer = Join-Path $Root "$LlamaDir/cpu/llama-server.exe"
