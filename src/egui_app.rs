@@ -6,6 +6,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::LazyLock;
 
 use crate::db::{lookup_word, lookup_word_for_token};
+// need to use a common interface, for when hyprland and kde impls are in place
 use crate::capture_text::{get_current_language_code_string, start_capturing_text};
 use crate::local_translator::{Translator};
 use crate::sudachi_analyzer::{JapaneseAnalyzer, Token};

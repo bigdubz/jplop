@@ -6,7 +6,9 @@ use crate::egui_app::start_ui;
 use crate::paths::{db, jm, dict};
 
 mod db;
+#[cfg(windows)]
 mod capture_text;
+//#[cfg(target_os = "linux")]
 mod egui_app;
 mod local_translator;
 mod sudachi_analyzer;
