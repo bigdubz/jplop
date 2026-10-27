@@ -1,16 +1,16 @@
-use std::env::current_exe;
 use eframe::egui;
-use std::sync::{Arc, Mutex};
-use std::time::{Instant, Duration};
+use std::env::current_exe;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::LazyLock;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::db::{lookup_word, lookup_word_for_token};
 // need to use a common interface, for when hyprland and kde impls are in place
-use crate::capture_text::{get_current_language_code_string, start_capturing_text};
-use crate::local_translator::{Translator};
-use crate::sudachi_analyzer::{JapaneseAnalyzer, Token};
+// use crate::capture_text::{get_current_language_code_string, start_capturing_text};
+use crate::local_translator::Translator;
 use crate::paths::db;
+use crate::sudachi_analyzer::{JapaneseAnalyzer, Token};
 
 pub(crate) static SHARED_EGUI_CONTEXT: LazyLock<Mutex<Option<egui::Context>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -90,17 +90,20 @@ impl TranslationAnalysis {
 }
 
 impl DictionaryOverlay {
-    fn new(db_path: String, query_arc: Arc<Mutex<String>>,
-           target_rect_arc: SharedTargetRect, model: Option<Translator>,
-            analyzer: JapaneseAnalyzer) -> Self {
-
-        let (query_tx, query_rx): (Sender<(String, String)>, Receiver<(String, String)>) = channel();
+    fn new(
+        db_path: String,
+        query_arc: Arc<Mutex<String>>,
+        target_rect_arc: SharedTargetRect,
+        model: Option<Translator>,
+        analyzer: JapaneseAnalyzer,
+    ) -> Self {
+        let (query_tx, query_rx): (Sender<(String, String)>, Receiver<(String, String)>) =
+            channel();
         let (result_tx, result_rx) = channel();
         if model.is_some() {
             let some_model = model.unwrap();
             std::thread::spawn(move || {
                 while let Ok((query, lang)) = query_rx.recv() {
-
                     // only process latest query
                     let mut latest_query = query;
                     let mut latest_lang = lang;
@@ -128,7 +131,8 @@ impl DictionaryOverlay {
             target_rect: target_rect_arc,
             result: String::new(),
             db_path,
-            current_lang: get_current_language_code_string(),
+            // current_lang: get_current_language_code_string(),
+            current_lang: "en".to_string(),
             last_lang_check_time: Instant::now(),
             last_query: String::new(),
             last_change_time: None,
@@ -159,14 +163,16 @@ impl eframe::App for DictionaryOverlay {
 
         if self.last_lang_check_time.elapsed() >= Duration::from_millis(2000) {
             self.last_lang_check_time = Instant::now();
-            self.current_lang = get_current_language_code_string();
+            // self.current_lang = get_current_language_code_string();
         }
 
-        if current_query.trim().is_empty() || current_query.starts_with("https://") ||
-            current_query.starts_with("http://") {
-            ctx.send_viewport_cmd(
-                egui::ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0))
-            );
+        if current_query.trim().is_empty()
+            || current_query.starts_with("https://")
+            || current_query.starts_with("http://")
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                -10000.0, -10000.0,
+            )));
 
             self.last_query.clear();
             self.last_change_time = None;
@@ -183,17 +189,17 @@ impl eframe::App for DictionaryOverlay {
                 self.translation_analysis.result = res;
 
                 if self.current_lang == "en" {
-                    self.translation_analysis.dissection = self.analyzer.dissect(
-                        self.translation_analysis.result.as_str()
-                    ).unwrap();
+                    self.translation_analysis.dissection = self
+                        .analyzer
+                        .dissect(self.translation_analysis.result.as_str())
+                        .unwrap();
                 }
             }
         }
 
         if self.current_lang == "ja" {
-            self.translation_analysis.dissection = self.analyzer.dissect(
-                current_query.as_str()
-            ).unwrap();
+            self.translation_analysis.dissection =
+                self.analyzer.dissect(current_query.as_str()).unwrap();
         }
 
         if current_query != self.last_query {
@@ -206,7 +212,9 @@ impl eframe::App for DictionaryOverlay {
             if let Some(change_time) = self.last_change_time {
                 if change_time.elapsed() >= Duration::from_millis(300) {
                     self.translation_triggered = true;
-                    let _ = self.query_tx.send((current_query.clone(), self.current_lang.clone()));
+                    let _ = self
+                        .query_tx
+                        .send((current_query.clone(), self.current_lang.clone()));
                 }
             }
         }
@@ -279,19 +287,18 @@ impl eframe::App for DictionaryOverlay {
                     });
             });
 
-        let desired_width = (content_size.x + OVERLAY_PADDING * 2.0)
-            .clamp(MIN_OVERLAY_WIDTH, MAX_OVERLAY_WIDTH);
+        let desired_width =
+            (content_size.x + OVERLAY_PADDING * 2.0).clamp(MIN_OVERLAY_WIDTH, MAX_OVERLAY_WIDTH);
 
-        let desired_height = (content_size.y + OVERLAY_PADDING * 2.0)
-            .clamp(80.0, MAX_OVERLAY_HEIGHT);
+        let desired_height =
+            (content_size.y + OVERLAY_PADDING * 2.0).clamp(80.0, MAX_OVERLAY_HEIGHT);
 
-        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(
-            egui::vec2(desired_width, desired_height),
-        ));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+            desired_width,
+            desired_height,
+        )));
 
-        let target = {
-            *self.target_rect.lock().unwrap()
-        };
+        let target = { *self.target_rect.lock().unwrap() };
 
         if let Some(rect) = target {
             let top = rect.y - desired_height - 12.0;
@@ -304,11 +311,7 @@ impl eframe::App for DictionaryOverlay {
                 }
             };
 
-            ctx.send_viewport_cmd(
-                egui::ViewportCommand::OuterPosition(
-                    egui::pos2(x, y)
-                )
-            );
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
         }
 
         if ctx.input(|i| i.viewport().close_requested()) {
@@ -344,16 +347,13 @@ impl eframe::App for DictionaryOverlay {
                                 .inner_margin(OVERLAY_PADDING),
                         )
                         .show(popup_ctx, |ui| {
-                            let available_width =
-                                MAX_OVERLAY_WIDTH - OVERLAY_PADDING * 2.0;
+                            let available_width = MAX_OVERLAY_WIDTH - OVERLAY_PADDING * 2.0;
 
                             ui.set_max_width(available_width);
 
                             egui::ScrollArea::vertical()
                                 .auto_shrink([false, false])
-                                .max_height(
-                                    MAX_OVERLAY_HEIGHT - OVERLAY_PADDING * 2.0,
-                                )
+                                .max_height(MAX_OVERLAY_HEIGHT - OVERLAY_PADDING * 2.0)
                                 .show(ui, |ui| {
                                     ui.set_width(available_width);
 
@@ -368,14 +368,13 @@ impl eframe::App for DictionaryOverlay {
                     let desired_width = (content_size.x + OVERLAY_PADDING * 2.0)
                         .clamp(MIN_OVERLAY_WIDTH, MAX_OVERLAY_WIDTH);
 
-                    let desired_height = (content_size.y + OVERLAY_PADDING * 2.0)
-                        .clamp(80.0, MAX_OVERLAY_HEIGHT);
+                    let desired_height =
+                        (content_size.y + OVERLAY_PADDING * 2.0).clamp(80.0, MAX_OVERLAY_HEIGHT);
 
-                    popup_ctx.send_viewport_cmd(
-                        egui::ViewportCommand::InnerSize(
-                            egui::vec2(desired_width, desired_height),
-                        ),
-                    );
+                    popup_ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                        desired_width,
+                        desired_height,
+                    )));
                 },
             );
         }
@@ -384,8 +383,10 @@ impl eframe::App for DictionaryOverlay {
     }
 }
 
-pub fn start_ui(model: Option<Translator>,
-                analyzer: JapaneseAnalyzer) -> Result<(), eframe::Error> {
+pub fn start_ui(
+    model: Option<Translator>,
+    analyzer: JapaneseAnalyzer,
+) -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([300.0, 200.0])
@@ -396,15 +397,12 @@ pub fn start_ui(model: Option<Translator>,
         ..Default::default()
     };
 
-    let path = current_exe().unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
+    let path = current_exe().unwrap().parent().unwrap().to_path_buf();
 
     let db_path = path.join("db.db");
     let query_arc = Arc::new(Mutex::new(String::new()));
     let target_rect_arc: SharedTargetRect = Arc::new(Mutex::new(None));
-    start_capturing_text(query_arc.clone(), target_rect_arc.clone());
+    //start_capturing_text(query_arc.clone(), target_rect_arc.clone());
 
     eframe::run_native(
         "DictOverlay",
@@ -421,7 +419,7 @@ pub fn start_ui(model: Option<Translator>,
                 query_arc.clone(),
                 target_rect_arc.clone(),
                 model,
-                analyzer
+                analyzer,
             )))
         }),
     )
@@ -445,11 +443,7 @@ fn render_highlighted_text(
                 continue;
             };
 
-
-            let response = ui.add(
-                egui::Label::new(surface)
-                    .sense(egui::Sense::click()),
-            );
+            let response = ui.add(egui::Label::new(surface).sense(egui::Sense::click()));
 
             if response.hovered() {
                 ui.painter().rect_filled(
@@ -460,16 +454,13 @@ fn render_highlighted_text(
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
 
-            let response = response.on_hover_text(
-                format!("{} [{}]", token.dictionary_form, token.reading)
-            );
+            let response =
+                response.on_hover_text(format!("{} [{}]", token.dictionary_form, token.reading));
 
             if response.clicked() {
                 *popup_word = token.dictionary_form.clone();
-                let lookup_result = lookup_word_for_token(
-                    db().to_str().unwrap(),
-                    token
-                ).unwrap_or_else(|e| format!("Lookup failed: {e}"));
+                let lookup_result = lookup_word_for_token(db().to_str().unwrap(), token)
+                    .unwrap_or_else(|e| format!("Lookup failed: {e}"));
                 if !lookup_result.is_empty() {
                     *popup_result = lookup_result.clone();
 
