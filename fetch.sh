@@ -88,77 +88,104 @@ else
     echo "Already exists: $JM_FILE"
 fi
 
-
-# ── llama.cpp CPU and CUDA builds ─────────────────────────────
+# ── llama.cpp Linux CPU and CUDA builds ────────────────────────
 
 LLAMA_BUILD="b11856"
 LLAMA_DIR="tools/llama.cpp"
 LLAMA_RELEASE_URL="https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}"
+
 
 download_and_extract() {
     archive="$1"
     dest="$2"
     url="${LLAMA_RELEASE_URL}/${archive}"
     part="${archive}.part"
+    temp_dir=$(mktemp -d) || return 1
 
     echo "Downloading ${archive}..."
 
     if ! curl -fL --retry 3 --retry-delay 2 "$url" -o "$part"; then
         rm -f "$part"
+        rm -rf "$temp_dir"
         echo "Download failed: ${archive}" >&2
         return 1
     fi
 
-    if ! unzip -t "$part" >/dev/null; then
+    if ! tar -tzf "$part" >/dev/null; then
         rm -f "$part"
-        echo "Invalid ZIP archive: ${archive}" >&2
+        rm -rf "$temp_dir"
+        echo "Invalid tar.gz archive: ${archive}" >&2
+        return 1
+    fi
+
+    if ! tar -xzf "$part" -C "$temp_dir"; then
+        rm -f "$part"
+        rm -rf "$temp_dir"
+        echo "Extraction failed: ${archive}" >&2
         return 1
     fi
 
     mkdir -p "$dest"
 
-    if ! unzip -o "$part" -d "$dest"; then
-        rm -f "$part"
-        echo "Extraction failed: ${archive}" >&2
-        return 1
+    if [ "$archive" = "cudart-llama-${LLAMA_BUILD}-bin-ubuntu-cuda-12.8-x64.tar.gz" ]; then
+        # Flatten only the CUDA runtime archive into cuda/.
+        find "$temp_dir" -type f -exec cp -f -t "$dest" -- {} + || {
+            rm -f "$part"
+            rm -rf "$temp_dir"
+            echo "CUDA runtime installation failed: ${archive}" >&2
+            return 1
+        }
+    else
+        # Preserve the original directory structure for llama.cpp builds.
+        cp -a "$temp_dir/." "$dest/" || {
+            rm -f "$part"
+            rm -rf "$temp_dir"
+            echo "Extraction installation failed: ${archive}" >&2
+            return 1
+        }
     fi
 
     rm -f "$part"
+    rm -rf "$temp_dir"
     echo "Installed ${archive}"
 }
 
-# CPU executable and its DLLs.
-if [ ! -f "$LLAMA_DIR/cpu/llama-server.exe" ]; then
+# CPU executable and shared libraries.
+if [ ! -f "$LLAMA_DIR/cpu/llama-server" ]; then
     download_and_extract \
-        "llama-${LLAMA_BUILD}-bin-win-cpu-x64.zip" \
+        "llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz" \
         "$LLAMA_DIR/cpu" || exit 1
 else
-    echo "Already exists: $LLAMA_DIR/cpu/llama-server.exe"
+    echo "Already exists: $LLAMA_DIR/cpu/llama-server"
 fi
 
-# CUDA executable and its bundled files.
-if [ ! -f "$LLAMA_DIR/cuda/llama-server.exe" ]; then
+# CUDA executable and shared libraries.
+if [ ! -f "$LLAMA_DIR/cuda/llama-server" ]; then
     download_and_extract \
-        "llama-${LLAMA_BUILD}-bin-win-cuda-12.4-x64.zip" \
+        "llama-${LLAMA_BUILD}-bin-ubuntu-cuda-12.8-x64.tar.gz" \
         "$LLAMA_DIR/cuda" || exit 1
 else
-    echo "Already exists: $LLAMA_DIR/cuda/llama-server.exe"
+    echo "Already exists: $LLAMA_DIR/cuda/llama-server"
 fi
 
-# CUDA runtime DLLs are distributed separately.
-# Always extract this archive so missing DLLs can be restored.
+# CUDA runtime libraries: flatten these beside llama-server too.
 download_and_extract \
-    "cudart-llama-bin-win-cuda-12.4-x64.zip" \
+    "cudart-llama-${LLAMA_BUILD}-bin-ubuntu-cuda-12.8-x64.tar.gz" \
     "$LLAMA_DIR/cuda" || exit 1
+
+mv tools/llama.cpp/cpu/llama-b11856/* tools/llama.cpp/cpu/
+rmdir tools/llama.cpp/cpu/llama-b11856
+
+mv tools/llama.cpp/cuda/llama-b11856/* tools/llama.cpp/cuda/
+rmdir tools/llama.cpp/cuda/llama-b11856
 
 # Verify the important files are present.
 for file in \
-    "$LLAMA_DIR/cpu/llama-server.exe" \
-    "$LLAMA_DIR/cuda/llama-server.exe" \
-    "$LLAMA_DIR/cuda/ggml-cuda.dll" \
-    "$LLAMA_DIR/cuda/cublas64_12.dll" \
-    "$LLAMA_DIR/cuda/cublasLt64_12.dll" \
-    "$LLAMA_DIR/cuda/cudart64_12.dll"
+    "$LLAMA_DIR/cpu/llama-server" \
+    "$LLAMA_DIR/cuda/llama-server" \
+    "$LLAMA_DIR/cuda/libggml-cuda.so" \
+    "$LLAMA_DIR/cuda/libcudart.so.12" \
+    "$LLAMA_DIR/cuda/libcublas.so.12"
 do
     if [ ! -f "$file" ]; then
         echo "Required llama.cpp file is missing: $file" >&2
@@ -166,7 +193,9 @@ do
     fi
 done
 
-echo "llama.cpp CPU and CUDA builds are ready."
+chmod +x "$LLAMA_DIR/cpu/llama-server"
+chmod +x "$LLAMA_DIR/cuda/llama-server"
 
+echo "llama.cpp Linux CPU and CUDA builds are ready."
 echo
 echo "All assets are ready."
