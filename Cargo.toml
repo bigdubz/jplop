@@ -15,6 +15,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 
 [target.'cfg(target_os = "linux")'.dependencies]
 atspi = { version = "0.30", features = ["tokio"] }
+atspi-proxies = "0.14"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures-util = "0.3"
 
