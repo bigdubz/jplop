@@ -48,6 +48,22 @@ pub fn model() -> PathBuf {
     app_dir().join("models/lfm/lfmf16.gguf")
 }
 
+#[cfg(windows)]
 pub fn llama() -> PathBuf {
     app_dir().join("tools/llama.cpp/cuda/llama-server.exe")
+}
+
+#[cfg(windows)]
+pub fn llama_cpu() -> PathBuf {
+    app_dir().join("tools/llama.cpp/cpu/llama-server.exe")
+}
+
+#[cfg(target_os = "linux")]
+pub fn llama() -> PathBuf {
+    app_dir().join("tools/llama.cpp/cuda/llama-server")
+}
+
+#[cfg(target_os = "linux")]
+pub fn llama_cpu() -> PathBuf {
+    app_dir().join("tools/llama.cpp/cpu/llama-server")
 }

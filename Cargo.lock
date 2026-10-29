@@ -2134,6 +2134,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "atspi 0.30.0",
+ "atspi-proxies 0.14.0",
  "eframe",
  "egui",
  "futures-util",

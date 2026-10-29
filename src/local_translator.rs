@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::paths::{model, llama};
+use crate::paths::{llama, llama_cpu, model};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Direction {
@@ -24,23 +24,20 @@ pub struct Translator {
 }
 
 impl Translator {
-
     pub fn start(
         cuda_server_exe: impl AsRef<Path>,
+        cpu_server_exe: impl AsRef<Path>,
         model_path: impl AsRef<Path>,
     ) -> Result<Self> {
         let cuda_server_exe = cuda_server_exe
             .as_ref()
             .canonicalize()
-            .context("Cannot find CUDA llama-server.exe")?;
+            .context("Cannot find CUDA llama-server")?;
 
-        let cpu_server_exe = cuda_server_exe
-            .parent()
-            .and_then(Path::parent)
-            .map(|cuda_dir| cuda_dir.join("cpu").join("llama-server.exe"))
-            .context("Cannot determine CPU llama-server.exe path")?
+        let cpu_server_exe = cpu_server_exe
+            .as_ref()
             .canonicalize()
-            .context("Cannot find CPU llama-server.exe")?;
+            .context("Cannot find CPU llama-server")?;
 
         let model_path = model_path
             .as_ref()
@@ -71,8 +68,8 @@ impl Translator {
             eprintln!("Starting {name} using {mode} mode...");
 
             // Allocate a fresh port for each attempt.
-            let listener = TcpListener::bind(("127.0.0.1", 0))
-                .context("Could not allocate a local port")?;
+            let listener =
+                TcpListener::bind(("127.0.0.1", 0)).context("Could not allocate a local port")?;
             let port = listener.local_addr()?.port();
             drop(listener);
 
@@ -121,16 +118,14 @@ impl Translator {
             loop {
                 match child.try_wait() {
                     Ok(Some(status)) => {
-                        startup_error = Some(format!(
-                            "{mode}: server exited during startup: {status}"
-                        ));
+                        startup_error =
+                            Some(format!("{mode}: server exited during startup: {status}"));
                         break;
                     }
                     Ok(None) => {}
                     Err(error) => {
-                        startup_error = Some(format!(
-                            "{mode}: could not check server process: {error}"
-                        ));
+                        startup_error =
+                            Some(format!("{mode}: could not check server process: {error}"));
                         break;
                     }
                 }
@@ -153,9 +148,7 @@ impl Translator {
                 }
 
                 if Instant::now() >= deadline {
-                    startup_error = Some(format!(
-                        "{mode}: timed out waiting for {name} to load"
-                    ));
+                    startup_error = Some(format!("{mode}: timed out waiting for {name} to load"));
                     break;
                 }
 
@@ -163,8 +156,7 @@ impl Translator {
             }
 
             // Clean up the failed attempt before trying the next executable.
-            let message = startup_error
-                .unwrap_or_else(|| format!("{mode}: startup failed"));
+            let message = startup_error.unwrap_or_else(|| format!("{mode}: startup failed"));
 
             eprintln!("{message}");
             errors.push(message);
@@ -178,11 +170,10 @@ impl Translator {
         }
 
         bail!(
-        "Could not start {name} with either CUDA or CPU:\n{}",
-        errors.join("\n")
+            "Could not start {name} with either CUDA or CPU:\n{}",
+            errors.join("\n")
         )
     }
-
 
     /// Translates one text using a fresh prompt, with no chat history.
 
@@ -191,7 +182,7 @@ impl Translator {
         let name = self.name.clone();
         let dir = match direction {
             Direction::JapaneseToEnglish => "english",
-            Direction::EnglishToJapanese => "japanese"
+            Direction::EnglishToJapanese => "japanese",
         };
         println!("[info]\t{name} is translating \"{text}\" to {dir}");
 
@@ -201,7 +192,7 @@ impl Translator {
 
         let system_prompt: &str = match direction {
             Direction::EnglishToJapanese => "Translate to Japanese.",
-            Direction::JapaneseToEnglish => "Translate to English."
+            Direction::JapaneseToEnglish => "Translate to English.",
         };
 
         let max_tokens = (text.chars().count() * 3 + 32).clamp(64, 512) as u32;
@@ -225,7 +216,8 @@ impl Translator {
             "repetition_penalty": 1.05,
         });
 
-        let http_response = self.client
+        let http_response = self
+            .client
             .post(format!(
                 "http://127.0.0.1:{}/v1/chat/completions",
                 self.port
@@ -245,14 +237,11 @@ impl Translator {
         }
 
         let json: serde_json::Value =
-            serde_json::from_str(&raw_body)
-                .context("Invalid response from llama-server")?;
+            serde_json::from_str(&raw_body).context("Invalid response from llama-server")?;
 
         let content = json["choices"][0]["message"]["content"]
             .as_str()
-            .ok_or_else(|| {
-                anyhow::anyhow!("Missing translation in response: {}", json)
-            })?;
+            .ok_or_else(|| anyhow::anyhow!("Missing translation in response: {}", json))?;
 
         let translation = content.trim();
 
@@ -265,17 +254,11 @@ impl Translator {
     }
 
     pub fn to_japanese(&self, text: &str) -> Result<String> {
-        self.translate(
-            text,
-            Direction::EnglishToJapanese,
-        )
+        self.translate(text, Direction::EnglishToJapanese)
     }
 
     pub fn to_english(&self, text: &str) -> Result<String> {
-        self.translate(
-            text,
-            Direction::JapaneseToEnglish,
-        )
+        self.translate(text, Direction::JapaneseToEnglish)
     }
 }
 
@@ -290,9 +273,10 @@ impl Drop for Translator {
 
 pub fn load_lfm() -> Result<Translator> {
     println!("[info]\tloading LFM2-f16...");
-    let llama_server_path = llama();
+    let llama_server_cuda_path = llama();
+    let llama_server_cpu_path = llama_cpu();
     let model_path = model();
-    let result = Translator::start(llama_server_path, model_path);
+    let result = Translator::start(llama_server_cuda_path, llama_server_cpu_path, model_path);
     if result.is_ok() {
         println!("[info]\tLFM2-f16 loaded");
     }
@@ -302,86 +286,197 @@ pub fn load_lfm() -> Result<Translator> {
 #[allow(dead_code)]
 pub fn test_translation_quality(model: Translator) {
     model.to_japanese("I ate sushi yesterday.").unwrap();
-    model.to_japanese("She is reading a book in her room.").unwrap();
+    model
+        .to_japanese("She is reading a book in her room.")
+        .unwrap();
     model.to_japanese("I have never been to Japan.").unwrap();
-    model.to_japanese("He was running when it started to rain.").unwrap();
-    model.to_japanese("I want to learn Japanese because I love Japanese culture.").unwrap();
+    model
+        .to_japanese("He was running when it started to rain.")
+        .unwrap();
+    model
+        .to_japanese("I want to learn Japanese because I love Japanese culture.")
+        .unwrap();
 
     model.to_japanese("I gave my friend a book.").unwrap();
     model.to_japanese("My friend gave me a book.").unwrap();
-    model.to_japanese("I received a present from my teacher.").unwrap();
-    model.to_japanese("Could you please teach me how to use this?").unwrap();
-    model.to_japanese("Even though I was tired, I kept working.").unwrap();
+    model
+        .to_japanese("I received a present from my teacher.")
+        .unwrap();
+    model
+        .to_japanese("Could you please teach me how to use this?")
+        .unwrap();
+    model
+        .to_japanese("Even though I was tired, I kept working.")
+        .unwrap();
 
     model.to_japanese("I thought he had already left.").unwrap();
-    model.to_japanese("If I had known, I would have helped you.").unwrap();
-    model.to_japanese("You don't have to come tomorrow.").unwrap();
-    model.to_japanese("I was told not to open the door.").unwrap();
-    model.to_japanese("She seems to have forgotten about the meeting.").unwrap();
+    model
+        .to_japanese("If I had known, I would have helped you.")
+        .unwrap();
+    model
+        .to_japanese("You don't have to come tomorrow.")
+        .unwrap();
+    model
+        .to_japanese("I was told not to open the door.")
+        .unwrap();
+    model
+        .to_japanese("She seems to have forgotten about the meeting.")
+        .unwrap();
 
-    model.to_japanese("The more I study, the more interesting Japanese becomes.").unwrap();
-    model.to_japanese("I ended up buying something I didn't need.").unwrap();
-    model.to_japanese("I tried eating natto for the first time.").unwrap();
-    model.to_japanese("He stopped smoking three years ago.").unwrap();
+    model
+        .to_japanese("The more I study, the more interesting Japanese becomes.")
+        .unwrap();
+    model
+        .to_japanese("I ended up buying something I didn't need.")
+        .unwrap();
+    model
+        .to_japanese("I tried eating natto for the first time.")
+        .unwrap();
+    model
+        .to_japanese("He stopped smoking three years ago.")
+        .unwrap();
     model.to_japanese("I forgot to bring my umbrella.").unwrap();
 
-    model.to_japanese("The beautiful flowers in the garden have begun to bloom.").unwrap();
-    model.to_japanese("She quickly ran across the busy street.").unwrap();
-    model.to_japanese("Although the movie was long, it was never boring.").unwrap();
-    model.to_japanese("I will probably stay home unless the weather improves.").unwrap();
-    model.to_japanese("Neither my brother nor my sister knows the answer.").unwrap();
+    model
+        .to_japanese("The beautiful flowers in the garden have begun to bloom.")
+        .unwrap();
+    model
+        .to_japanese("She quickly ran across the busy street.")
+        .unwrap();
+    model
+        .to_japanese("Although the movie was long, it was never boring.")
+        .unwrap();
+    model
+        .to_japanese("I will probably stay home unless the weather improves.")
+        .unwrap();
+    model
+        .to_japanese("Neither my brother nor my sister knows the answer.")
+        .unwrap();
 
-    model.to_japanese("Let's meet at Tokyo Station at 8:30 tomorrow morning.").unwrap();
-    model.to_japanese("Wait, you actually bought all of these?!").unwrap();
-    model.to_japanese("Mr. Tanaka said, \"I'll be back in a few minutes.\"").unwrap();
-    model.to_japanese("I like cats, dogs, birds, and other animals.").unwrap();
+    model
+        .to_japanese("Let's meet at Tokyo Station at 8:30 tomorrow morning.")
+        .unwrap();
+    model
+        .to_japanese("Wait, you actually bought all of these?!")
+        .unwrap();
+    model
+        .to_japanese("Mr. Tanaka said, \"I'll be back in a few minutes.\"")
+        .unwrap();
+    model
+        .to_japanese("I like cats, dogs, birds, and other animals.")
+        .unwrap();
     model.to_japanese("Please open the window.").unwrap();
 
     model.to_english("昨日、寿司を食べました。").unwrap();
-    model.to_english("彼女は今、自分の部屋で本を読んでいます。").unwrap();
-    model.to_english("私は日本に行ったことがありません。").unwrap();
-    model.to_english("雨が降り始めたとき、彼は走っていました。").unwrap();
-    model.to_english("日本の文化が好きなので、日本語を勉強したいです。").unwrap();
+    model
+        .to_english("彼女は今、自分の部屋で本を読んでいます。")
+        .unwrap();
+    model
+        .to_english("私は日本に行ったことがありません。")
+        .unwrap();
+    model
+        .to_english("雨が降り始めたとき、彼は走っていました。")
+        .unwrap();
+    model
+        .to_english("日本の文化が好きなので、日本語を勉強したいです。")
+        .unwrap();
 
     model.to_english("友達に本をあげました。").unwrap();
     model.to_english("友達が私に本をくれました。").unwrap();
-    model.to_english("先生からプレゼントをいただきました。").unwrap();
-    model.to_english("これの使い方を教えていただけますか？").unwrap();
-    model.to_english("疲れていたにもかかわらず、仕事を続けました。").unwrap();
+    model
+        .to_english("先生からプレゼントをいただきました。")
+        .unwrap();
+    model
+        .to_english("これの使い方を教えていただけますか？")
+        .unwrap();
+    model
+        .to_english("疲れていたにもかかわらず、仕事を続けました。")
+        .unwrap();
 
-    model.to_english("彼はもう出て行ったと思っていました。").unwrap();
-    model.to_english("もし知っていたら、あなたを助けたのに。").unwrap();
+    model
+        .to_english("彼はもう出て行ったと思っていました。")
+        .unwrap();
+    model
+        .to_english("もし知っていたら、あなたを助けたのに。")
+        .unwrap();
     model.to_english("明日は来なくても大丈夫です。").unwrap();
-    model.to_english("ドアを開けないように言われました。").unwrap();
-    model.to_english("彼女は会議のことを忘れてしまったようです。").unwrap();
+    model
+        .to_english("ドアを開けないように言われました。")
+        .unwrap();
+    model
+        .to_english("彼女は会議のことを忘れてしまったようです。")
+        .unwrap();
 
-    model.to_english("勉強すればするほど、日本語が面白くなります。").unwrap();
-    model.to_english("結局、必要のないものを買ってしまいました。").unwrap();
+    model
+        .to_english("勉強すればするほど、日本語が面白くなります。")
+        .unwrap();
+    model
+        .to_english("結局、必要のないものを買ってしまいました。")
+        .unwrap();
     model.to_english("初めて納豆を食べてみました。").unwrap();
     model.to_english("彼は3年前にタバコをやめました。").unwrap();
     model.to_english("傘を持ってくるのを忘れました。").unwrap();
 
-    model.to_english("庭の美しい花々が咲き始めました。").unwrap();
-    model.to_english("彼女は人通りの多い通りを急いで走り抜けました。").unwrap();
-    model.to_english("その映画は長かったけれど、一度も退屈しませんでした。").unwrap();
-    model.to_english("天気が良くならない限り、たぶん家にいると思います。").unwrap();
-    model.to_english("兄も妹も、その答えを知りません。").unwrap();
+    model
+        .to_english("庭の美しい花々が咲き始めました。")
+        .unwrap();
+    model
+        .to_english("彼女は人通りの多い通りを急いで走り抜けました。")
+        .unwrap();
+    model
+        .to_english("その映画は長かったけれど、一度も退屈しませんでした。")
+        .unwrap();
+    model
+        .to_english("天気が良くならない限り、たぶん家にいると思います。")
+        .unwrap();
+    model
+        .to_english("兄も妹も、その答えを知りません。")
+        .unwrap();
 
-    model.to_english("明日の朝8時30分に東京駅で会いましょう。").unwrap();
-    model.to_english("えっ、本当にこれを全部買ったの！？").unwrap();
-    model.to_english("田中さんは「数分後に戻ります」と言いました。").unwrap();
-    model.to_english("私は猫も犬も鳥も、ほかの動物も好きです。").unwrap();
-    model.to_english("すみませんが、最寄りの駅がどこにあるか教えていただけますか？").unwrap();
+    model
+        .to_english("明日の朝8時30分に東京駅で会いましょう。")
+        .unwrap();
+    model
+        .to_english("えっ、本当にこれを全部買ったの！？")
+        .unwrap();
+    model
+        .to_english("田中さんは「数分後に戻ります」と言いました。")
+        .unwrap();
+    model
+        .to_english("私は猫も犬も鳥も、ほかの動物も好きです。")
+        .unwrap();
+    model
+        .to_english("すみませんが、最寄りの駅がどこにあるか教えていただけますか？")
+        .unwrap();
 
-    model.to_english("行かなくてもいいと言われたけれど、行かないほうがいいとは言われていません。").unwrap();
-    model.to_english("彼が来るとは思っていなかったわけではありません。").unwrap();
-    model.to_english("雨が降っていたら、試合は中止になっていたでしょう。").unwrap();
-    model.to_english("彼女はまだ帰っていないはずです。").unwrap();
-    model.to_english("この薬を飲んだからといって、すぐに治るとは限りません。").unwrap();
-    model.to_english("彼に本当のことを言わないでおいた。").unwrap();
-    model.to_english("もう少しで電車に乗り遅れるところでした。").unwrap();
-    model.to_english("彼は忙しいと言いながら、毎日遊びに出かけています。").unwrap();
-    model.to_english("私が頼んだのは、資料を送ってほしいということだけです。").unwrap();
-    model.to_english("別に嫌いなわけじゃないけど、今は食べたくない。").unwrap();
+    model
+        .to_english("行かなくてもいいと言われたけれど、行かないほうがいいとは言われていません。")
+        .unwrap();
+    model
+        .to_english("彼が来るとは思っていなかったわけではありません。")
+        .unwrap();
+    model
+        .to_english("雨が降っていたら、試合は中止になっていたでしょう。")
+        .unwrap();
+    model
+        .to_english("彼女はまだ帰っていないはずです。")
+        .unwrap();
+    model
+        .to_english("この薬を飲んだからといって、すぐに治るとは限りません。")
+        .unwrap();
+    model
+        .to_english("彼に本当のことを言わないでおいた。")
+        .unwrap();
+    model
+        .to_english("もう少しで電車に乗り遅れるところでした。")
+        .unwrap();
+    model
+        .to_english("彼は忙しいと言いながら、毎日遊びに出かけています。")
+        .unwrap();
+    model
+        .to_english("私が頼んだのは、資料を送ってほしいということだけです。")
+        .unwrap();
+    model
+        .to_english("別に嫌いなわけじゃないけど、今は食べたくない。")
+        .unwrap();
 }
-

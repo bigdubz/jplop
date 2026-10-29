@@ -5,9 +5,8 @@ use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::cap_text::{get_current_language_code_string, start_capturing_text};
 use crate::db::{lookup_word, lookup_word_for_token};
-// need to use a common interface, for when hyprland and kde impls are in place
-// use crate::capture_text::{get_current_language_code_string, start_capturing_text};
 use crate::local_translator::Translator;
 use crate::paths::db;
 use crate::sudachi_analyzer::{JapaneseAnalyzer, Token};
@@ -15,29 +14,33 @@ use crate::sudachi_analyzer::{JapaneseAnalyzer, Token};
 pub(crate) static SHARED_EGUI_CONTEXT: LazyLock<Mutex<Option<egui::Context>>> =
     LazyLock::new(|| Mutex::new(None));
 
+// must fix this
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
-    // Load a font that supports Japanese characters from the Windows system font directory
-    if let Ok(font_data) = std::fs::read("C:\\Windows\\Fonts\\msgothic.ttc") {
+    #[cfg(windows)]
+    let font_path = "C:\\Windows\\Fonts\\msgothic.ttc";
+
+    #[cfg(target_os = "linux")]
+    let font_path = "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc";
+
+    if let Ok(font_data) = std::fs::read(font_path) {
         fonts.font_data.insert(
-            "ms_gothic".to_owned(),
-            egui::FontData::from_owned(font_data),
+            "japanese_font".to_owned(),
+            egui::FontData::from_owned(font_data).into(),
         );
 
-        fonts
-            .families
-            .get_mut(&egui::FontFamily::Proportional)
-            .unwrap()
-            .insert(0, "ms_gothic".to_owned());
-
-        fonts
-            .families
-            .get_mut(&egui::FontFamily::Monospace)
-            .unwrap()
-            .push("ms_gothic".to_owned());
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            fonts
+                .families
+                .get_mut(&family)
+                .unwrap()
+                .insert(0, "japanese_font".to_owned());
+        }
 
         ctx.set_fonts(fonts);
+    } else {
+        eprintln!("Could not load Japanese font: {font_path}");
     }
 }
 
@@ -131,8 +134,7 @@ impl DictionaryOverlay {
             target_rect: target_rect_arc,
             result: String::new(),
             db_path,
-            // current_lang: get_current_language_code_string(),
-            current_lang: "en".to_string(),
+            current_lang: get_current_language_code_string(),
             last_lang_check_time: Instant::now(),
             last_query: String::new(),
             last_change_time: None,
@@ -163,7 +165,7 @@ impl eframe::App for DictionaryOverlay {
 
         if self.last_lang_check_time.elapsed() >= Duration::from_millis(2000) {
             self.last_lang_check_time = Instant::now();
-            // self.current_lang = get_current_language_code_string();
+            self.current_lang = get_current_language_code_string();
         }
 
         if current_query.trim().is_empty()
@@ -397,12 +399,10 @@ pub fn start_ui(
         ..Default::default()
     };
 
-    let path = current_exe().unwrap().parent().unwrap().to_path_buf();
-
-    let db_path = path.join("db.db");
+    let db_path = db();
     let query_arc = Arc::new(Mutex::new(String::new()));
     let target_rect_arc: SharedTargetRect = Arc::new(Mutex::new(None));
-    //start_capturing_text(query_arc.clone(), target_rect_arc.clone());
+    start_capturing_text(query_arc.clone(), target_rect_arc.clone());
 
     eframe::run_native(
         "DictOverlay",
