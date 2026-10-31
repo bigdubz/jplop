@@ -4,13 +4,14 @@ use atspi::{
     connection::P2P,
     events::{FocusEvents, ObjectEvents},
     proxy::proxy_ext::ProxyExt,
-    AccessibilityConnection, ObjectRefOwned, State,
+    AccessibilityConnection, CoordType, ObjectRefOwned, State,
 };
 use futures_util::stream::StreamExt;
 
 use crate::egui_app::{SharedTargetRect, TargetRect};
+use crate::hyprland_util::hyprland_get_window_coordinates_by_pid;
 
-pub fn start_capturing_text(query_arc: Arc<Mutex<String>>, _target_rect_arc: SharedTargetRect) {
+pub fn start_capturing_text(query_arc: Arc<Mutex<String>>, target_rect_arc: SharedTargetRect) {
     thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -23,12 +24,16 @@ pub fn start_capturing_text(query_arc: Arc<Mutex<String>>, _target_rect_arc: Sha
             }
         };
 
-        if let Err(error) = runtime.block_on(listen_for_text_changes(query_arc)) {
+        if let Err(error) = runtime.block_on(listen_for_text_changes(query_arc, target_rect_arc)) {
             eprintln!("AT-SPI listener stopped: {error}");
         }
     });
 }
-async fn listen_for_text_changes(query_arc: Arc<Mutex<String>>) -> anyhow::Result<()> {
+
+async fn listen_for_text_changes(
+    query_arc: Arc<Mutex<String>>,
+    target_rect_arc: SharedTargetRect,
+) -> anyhow::Result<()> {
     let connection = AccessibilityConnection::new().await?;
 
     connection.register_event::<ObjectEvents>().await?;
@@ -39,6 +44,7 @@ async fn listen_for_text_changes(query_arc: Arc<Mutex<String>>) -> anyhow::Resul
 
     println!("Listening for focus and text changes...");
 
+    let mut last_rect_object: Option<ObjectRefOwned> = None;
     while let Some(event) = events.next().await {
         let Ok(event) = event else {
             continue;
@@ -87,6 +93,10 @@ async fn listen_for_text_changes(query_arc: Arc<Mutex<String>>) -> anyhow::Resul
                 };
 
                 update_query(&query_arc, contents);
+                if last_rect_object.as_ref() != Some(&event.item) {
+                    update_target_rect(&connection, &event.item, &target_rect_arc).await;
+                    last_rect_object = Some(event.item.clone());
+                }
             }
 
             _ => {}
@@ -119,6 +129,7 @@ pub fn get_current_language_code_string() -> String {
         _ => "en".to_string(),
     }
 }
+
 fn update_query(query_arc: &Arc<Mutex<String>>, contents: String) {
     let contents: String = contents
         .chars()
@@ -134,4 +145,71 @@ fn update_query(query_arc: &Arc<Mutex<String>>, contents: String) {
     if let Ok(mut query) = query_arc.lock() {
         *query = contents;
     }
+}
+
+async fn update_target_rect(
+    connection: &AccessibilityConnection,
+    object: &ObjectRefOwned,
+    target_rect_arc: &SharedTargetRect,
+) {
+    let Ok(accessible) = connection.object_as_accessible(object).await else {
+        return;
+    };
+
+    let Ok(proxies) = accessible.proxies().await else {
+        return;
+    };
+
+    let Ok(component) = proxies.component().await else {
+        return;
+    };
+
+    let Ok((x, y, width, height)) = component.get_extents(CoordType::Screen).await else {
+        return;
+    };
+
+    if width <= 0 || height <= 0 {
+        return;
+    }
+
+    let window_coords: Option<(i32, i32)>;
+    match get_accessible_pid(&connection, &object).await {
+        Ok(pid) => window_coords = hyprland_get_window_coordinates_by_pid(pid as i64),
+        Err(error) => {
+            window_coords = None;
+            eprintln!("Failed to get accessible PID: {error}");
+        }
+    }
+
+    let (x, y) = window_coords
+        .map(|(wx, wy)| (x + wx, y + wy))
+        .unwrap_or((x, y));
+
+    if let Ok(mut target) = target_rect_arc.lock() {
+        *target = Some(TargetRect {
+            x: x as f32,
+            y: y as f32,
+            width: width as f32,
+            height: height as f32,
+        });
+    }
+}
+
+async fn get_accessible_pid(
+    connection: &AccessibilityConnection,
+    object: &ObjectRefOwned,
+) -> anyhow::Result<u32> {
+    use zbus::fdo::DBusProxy;
+    use zbus::names::BusName;
+
+    let bus_name = object
+        .name()
+        .ok_or_else(|| anyhow::anyhow!("Accessible object has no bus name"))?
+        .to_string();
+
+    let dbus = DBusProxy::new(connection.connection()).await?;
+    let bus_name = BusName::try_from(bus_name.as_str())?;
+    let pid = dbus.get_connection_unix_process_id(bus_name).await?;
+
+    Ok(pid)
 }

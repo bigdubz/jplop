@@ -10,7 +10,8 @@ use crate::cap_text::{get_current_language_code_string, start_capturing_text};
 use crate::db::{lookup_word, lookup_word_for_token};
 #[cfg(target_os = "linux")]
 use crate::hyprland_util::{
-    hyprland_window_exists, resize_hyprland_window, try_set_hyprland_window_floating,
+    hyprland_window_exists, move_hyprland_window, resize_hyprland_window,
+    try_set_hyprland_window_floating,
 };
 use crate::local_translator::Translator;
 use crate::paths::db;
@@ -18,6 +19,9 @@ use crate::sudachi_analyzer::{JapaneseAnalyzer, Token};
 
 pub(crate) static SHARED_EGUI_CONTEXT: LazyLock<Mutex<Option<egui::Context>>> =
     LazyLock::new(|| Mutex::new(None));
+
+const WINDOW_TITLE: &str = "DictOverlay";
+const POPUP_WINDOW_TITLE: &str = "DictOverlayPopup";
 
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
@@ -81,6 +85,7 @@ struct DictionaryOverlay {
     popup_result: String,
     popup_position: egui::Pos2,
 
+    last_window_pos: Option<(i32, i32)>,
     last_window_size: Option<(u32, u32)>,
     last_popup_window_size: Option<(u32, u32)>,
 
@@ -158,6 +163,7 @@ impl DictionaryOverlay {
             popup_result: String::new(),
             popup_position: egui::Pos2::ZERO,
 
+            last_window_pos: None,
             last_window_size: None,
             last_popup_window_size: None,
 
@@ -199,10 +205,17 @@ impl eframe::App for DictionaryOverlay {
             || current_query.starts_with("https://")
             || current_query.starts_with("http://")
         {
-            #[cfg(windows)]
-            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-                -10000.0, -10000.0,
-            )));
+            if self.last_window_pos != Some((-10000, -10000)) {
+                #[cfg(windows)]
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                    -10000.0, -10000.0,
+                )));
+
+                // NOTE perhaps it is crashing when it goes out frame
+                //#[cfg(target_os = "linux")]
+                //move_hyprland_window(-10000, -10000, WINDOW_TITLE);
+                self.last_window_pos = Some((-10000, -10000));
+            }
 
             self.last_query.clear();
             self.last_change_time = None;
@@ -332,15 +345,13 @@ impl eframe::App for DictionaryOverlay {
             )));
 
             #[cfg(target_os = "linux")]
-            resize_hyprland_window(desired_width as u32, desired_height as u32, "DictOverlay");
+            resize_hyprland_window(desired_width as u32, desired_height as u32, WINDOW_TITLE);
 
             self.last_window_size = Some((desired_width as u32, desired_height as u32));
         }
 
-        #[cfg(windows)]
         let target = { *self.target_rect.lock().unwrap() };
 
-        #[cfg(windows)]
         if let Some(rect) = target {
             let top = rect.y - desired_height - 12.0;
             let x = rect.x;
@@ -352,7 +363,14 @@ impl eframe::App for DictionaryOverlay {
                 }
             };
 
-            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+            if self.last_window_pos != Some((x as i32, y as i32)) {
+                #[cfg(windows)]
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+
+                #[cfg(target_os = "linux")]
+                move_hyprland_window(x as i32, y as i32, WINDOW_TITLE);
+                self.last_window_pos = Some((x as i32, y as i32));
+            }
         }
 
         if ctx.input(|i| i.viewport().close_requested()) {
@@ -366,7 +384,7 @@ impl eframe::App for DictionaryOverlay {
             ctx.show_viewport_immediate(
                 popup_id,
                 egui::ViewportBuilder::default()
-                    .with_title("DictOverlayPopup")
+                    .with_title(POPUP_WINDOW_TITLE)
                     .with_inner_size([MIN_OVERLAY_WIDTH, 100.0])
                     .with_min_inner_size([MIN_OVERLAY_WIDTH, 80.0])
                     .with_max_inner_size([MAX_OVERLAY_WIDTH, MAX_OVERLAY_HEIGHT])
@@ -428,11 +446,11 @@ impl eframe::App for DictionaryOverlay {
 
                         #[cfg(target_os = "linux")]
                         {
-                            if hyprland_window_exists("DictOverlayPopup") {
+                            if hyprland_window_exists(POPUP_WINDOW_TITLE) {
                                 resize_hyprland_window(
                                     desired_width as u32,
                                     desired_height as u32,
-                                    "DictOverlayPopup",
+                                    POPUP_WINDOW_TITLE,
                                 );
 
                                 self.last_popup_window_size =
@@ -467,7 +485,7 @@ pub fn start_ui(
     start_capturing_text(query_arc.clone(), target_rect_arc.clone());
 
     eframe::run_native(
-        "DictOverlay",
+        WINDOW_TITLE,
         options,
         Box::new(move |cc| {
             setup_fonts(&cc.egui_ctx);
