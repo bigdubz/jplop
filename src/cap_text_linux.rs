@@ -50,19 +50,6 @@ async fn listen_for_text_changes(query_arc: Arc<Mutex<String>>) -> anyhow::Resul
             {
                 if event.enabled {
                     focused_object = Some(event.item.clone());
-
-                    if let Ok(accessible) = connection.object_as_accessible(&event.item).await {
-                        // Read the current value when focus enters a field.
-                        if let Ok(proxies) = accessible.proxies().await {
-                            if let Ok(text) = proxies.text().await {
-                                if let Ok(count) = text.character_count().await {
-                                    if let Ok(contents) = text.get_text(0, count).await {
-                                        update_query(&query_arc, contents);
-                                    }
-                                }
-                            }
-                        }
-                    }
                 } else if focused_object.as_ref() == Some(&event.item) {
                     focused_object = None;
                 }

@@ -12,6 +12,8 @@ mod cap_text_linux;
 mod capture_text;
 mod db;
 mod egui_app;
+#[cfg(target_os = "linux")]
+mod hyprland_util;
 mod local_translator;
 mod paths;
 mod sudachi_analyzer;
